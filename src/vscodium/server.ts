@@ -41,6 +41,11 @@ export class ServerInstallError extends Error {
 }
 
 const DEFAULT_DOWNLOAD_URL_TEMPLATE = 'https://github.com/VSCodium/vscodium/releases/download/${version}.${release}/vscodium-reh-${os}-${arch}-${version}.${release}.tar.gz';
+const VERSION_RELEASE_MAP: { [key: string]: string } = {
+    '1.95.3': '24321',
+    '1.96.4': '25026',
+    '1.97.2': '25045'
+};
 
 export async function installCodeServer(devpodAddr: string, extensionIds: string[]): Promise<ServerInstallResult> {
     let platform =  undefined;
@@ -213,7 +218,7 @@ TMP_DIR="\${XDG_RUNTIME_DIR:-"/tmp"}"
 DISTRO_VERSION="${version}"
 DISTRO_COMMIT="${commit}"
 DISTRO_QUALITY="${quality}"
-DISTRO_VSCODIUM_RELEASE="${release ?? ''}"
+DISTRO_VSCODIUM_RELEASE="${release ?? VERSION_RELEASE_MAP[version] ?? ''}"
 
 SERVER_APP_NAME="${serverApplicationName}"
 SERVER_INITIAL_EXTENSIONS="${extensions}"
@@ -343,11 +348,24 @@ if [[ ! -f $SERVER_SCRIPT ]]; then
         print_install_results_and_exit 1
     fi
 
+    # Get old commit from product.json and replace with new commit
+    if [[ -f "$SERVER_DIR/product.json" ]]; then
+        OLD_COMMIT=$(grep -o '"commit": *"[^"]*"' "$SERVER_DIR/product.json" | cut -d'"' -f4)
+        if [[ ! -z "$OLD_COMMIT" ]]; then
+            find "$SERVER_DIR" -type f -exec sed -i "s/$OLD_COMMIT/$DISTRO_COMMIT/g" {} +
+        fi
+    fi
+    # Rename all files containing 'codium' in bin directory
+    find "$SERVER_DIR/bin" -type f -name "*codium*" | while read file; do
+        new_name=$(echo "$file" | sed 's/codium/trae/g')
+        mv "$file" "$new_name"
+    done
+
     if [[ ! -f $SERVER_SCRIPT ]]; then
         echo "Error server contents are corrupted"
         print_install_results_and_exit 1
     fi
-
+    
     rm -f vscode-server.tar.gz
 
     popd > /dev/null
@@ -430,7 +448,7 @@ $TMP_DIR="$env:TEMP\\$([System.IO.Path]::GetRandomFileName())"
 $DISTRO_VERSION="${version}"
 $DISTRO_COMMIT="${commit}"
 $DISTRO_QUALITY="${quality}"
-$DISTRO_VSCODIUM_RELEASE="${release ?? ''}"
+$DISTRO_VSCODIUM_RELEASE="${release ?? VERSION_RELEASE_MAP[version] ?? ''}"
 
 $SERVER_APP_NAME="${serverApplicationName}"
 $SERVER_INITIAL_EXTENSIONS="${extensions}"
@@ -510,6 +528,21 @@ if(!(Test-Path $SERVER_SCRIPT)) {
 
     if(Test-Path "vscode-server.tar.gz") {
         tar -xf vscode-server.tar.gz --strip-components 1
+
+         # Get old commit from product.json and replace with new commit
+        if(Test-Path "$SERVER_DIR\\product.json") {
+            $OLD_COMMIT = (Select-String -Path "$SERVER_DIR\\product.json" -Pattern '"commit": *"[^"]*"').Matches.Value -replace '"commit": *"|"',''
+            if($OLD_COMMIT) {
+                Get-ChildItem -Path $SERVER_DIR -Recurse -File | ForEach-Object {
+                    (Get-Content $_.FullName) -replace $OLD_COMMIT,$DISTRO_COMMIT | Set-Content $_.FullName
+                }
+            }
+        }
+        # Rename all files containing 'codium' in bin directory
+        Get-ChildItem -Path "$SERVER_DIR\\bin" -Filter "*codium*" | ForEach-Object {
+            $newName = $_.Name -replace 'codium','trae'
+            Rename-Item -Path $_.FullName -NewName $newName
+        }
 
         del vscode-server.tar.gz
     }
